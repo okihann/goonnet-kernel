@@ -98,8 +98,16 @@ jobs:
             cp dummy_hwid.h "$dir/hwid.h"
           done
           
-          sed -i '1210i #if 0' drivers/usb/gadget/udc/core.c
-          sed -i '1250a #endif' drivers/usb/gadget/udc/core.c
+          python3 -c "
+          import sys
+          content = open('drivers/usb/gadget/udc/core.c').read()
+          funcs = ['usb_gadget_enable_async_callbacks', 'usb_gadget_disable_async_callbacks']
+          for f in funcs:
+            parts = content.split('static inline void ' + f)
+            if len(parts) > 2:
+            content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + parts[2] + '#endif\n'
+          open('drivers/usb/gadget/udc/core.c', 'w').write(content)
+          "
           
           PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
           if [ ! -z "$PLAID_CALLER" ]; then
@@ -111,18 +119,19 @@ jobs:
       - name: Configure and Patch Kernel
         working-directory: kernel
         run: |
-          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
+          
+          $CONF gki_defconfig
 
           CONSOLIDATE=$(find arch/arm64/configs/vendor -name "garnet_consolidate.config" | sed 's|arch/arm64/configs/||')
-          [ ! -z "$CONSOLIDATE" ] && make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$CONSOLIDATE"
+          [ ! -z "$CONSOLIDATE" ] && $CONF "$CONSOLIDATE"
 
           GKI_FRAG=$(find arch/arm64/configs/vendor -name "garnet_GKI.config" | sed 's|arch/arm64/configs/||')
-          [ ! -z "$GKI_FRAG" ] && make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$GKI_FRAG"
+          [ ! -z "$GKI_FRAG" ] && $CONF "$GKI_FRAG"
           
           CONFIG_FILE="out/.config"
-          append_if_missing() {
-            grep -q "^$1" "$CONFIG_FILE" || echo "$1" >> "$CONFIG_FILE"
-          }
+          echo "CONFIG_TCP_CONG_BBR=y" >> $CONFIG_FILE
+          echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> $CONFIG_FILE
 
           append_if_missing "CONFIG_KPM=y"
           append_if_missing "CONFIG_KALLSYMS=y"
@@ -134,8 +143,8 @@ jobs:
           append_if_missing "CONFIG_CRYPTO_LZ4=y"
           append_if_missing "CONFIG_CRYPTO_ZSTD=y"
 
-          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-
+          yes "" | $CONF olddefconfig
+      
       - name: Patch GPU freq table (OC + UV)
         run: |
           python3 kernel/patch_gpu_dtsi.py \
