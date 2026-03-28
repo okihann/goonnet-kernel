@@ -1,0 +1,183 @@
+name: Build Garnet Kernel (SuKiSU + GPU OC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      gpu_oc_freq:
+        description: 'GPU OC freq in Hz (new top level added above stock 940MHz)'
+        default: '1000000000'
+        required: true
+      gpu_oc_acd:
+        description: 'ACD level for OC freq (hex, stock 940M = 0xA82B5FFD)'
+        default: '0xA82B5FFD'
+        required: true
+      apply_uv:
+        description: 'Apply undervolt to stock 940MHz and below?'
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      sukisu_variant:
+        description: 'SuKiSU variant'
+        default: 'susfs-main'
+        type: choice
+        options:
+          - 'susfs-main'
+          - 'main'
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Free disk space
+        run: |
+          echo "=== Disk before cleanup ==="
+          df -h
+          sudo rm -rf \
+            /usr/share/dotnet /usr/share/swift /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" \
+            /usr/local/share/chromium /usr/share/php /usr/share/ruby
+          sudo apt-get clean
+          sudo docker system prune -af 2>/dev/null || true
+          echo "=== Disk after cleanup ==="
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            git bc bison flex libssl-dev libelf-dev python3 python3-pip \
+            zip unzip curl wget gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            make libncurses-dev cpio pahole clang lld llvm device-tree-compiler \
+            openjdk-11-jdk-headless
+          pip3 install --quiet absl-py
+
+      - name: Clone okihann garnet_kernel (Private)
+        uses: actions/checkout@v4
+        with:
+          repository: okihann/garnet-kernel
+          ref: garnet-t-oss
+          token: ${{ secrets.GH_PAT }}
+          path: kernel
+
+      - name: Clone okihann garnet_devicetree (Private)
+        uses: actions/checkout@v4
+        with:
+          repository: okihann/garnet-devicetree
+          ref: garnet-t-oss
+          token: ${{ secrets.GH_PAT }}
+          path: kernel/kernel_devicetree
+
+      - name: Apply SuKiSU patch
+        working-directory: kernel
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant }}
+
+      - name: Fix broken Xiaomi dependencies
+        working-directory: kernel
+        run: |
+          sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
+          sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
+
+          sed -i '/hwid/d' drivers/misc/Makefile
+          sed -i '/plaid/d' drivers/misc/Makefile
+
+          mkdir -p drivers/soc/qcom/icnss2/
+          cat <<EOF > drivers/soc/qcom/icnss2/hwid.h
+          #ifndef _HWID_H_
+          #define _HWID_H_
+
+          static inline int get_hw_country_version(void) { return 0; }
+          static inline int get_hw_version_platform(void) { return 0; }
+
+          #define HARDWARE_PROJECT_L9S 0
+          #define HARDWARE_PROJECT_N16 1
+          #define CountryGlobal 0
+          #define CountryIndia 1
+
+          #endif
+          EOF
+
+          PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
+          if [ ! -z "$PLAID_CALLER" ]; then
+            PLAID_DIR=$(dirname "$PLAID_CALLER")
+            echo "Creating dummy plaid.h in $PLAID_DIR"
+            echo "/* Dummy */" > "$PLAID_DIR/plaid.h"
+          fi
+
+      - name: Configure and Patch Kernel
+        working-directory: kernel
+        run: |
+          FRAGMENT=$(find arch/arm64/configs/vendor -type f \( -name "*garnet*GKI.config" -o -name "*parrot*GKI.config" \) | head -1)
+          FRAGMENT_TARGET=$(echo "$FRAGMENT" | sed 's|arch/arm64/configs/||')
+          
+          echo "Base: gki_defconfig"
+          echo "Fragment: $FRAGMENT_TARGET"
+          
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$FRAGMENT_TARGET"
+          
+          CONFIG_FILE="out/.config"
+          append_if_missing() {
+            grep -q "^$1" "$CONFIG_FILE" || echo "$1" >> "$CONFIG_FILE"
+          }
+
+          append_if_missing "CONFIG_KPM=y"
+          append_if_missing "CONFIG_KALLSYMS=y"
+          append_if_missing "CONFIG_KALLSYMS_ALL=y"
+          append_if_missing "CONFIG_TCP_CONG_BBR=y"
+          append_if_missing 'CONFIG_DEFAULT_TCP_CONG="bbr"'
+          append_if_missing "CONFIG_ZRAM=y"
+          append_if_missing "CONFIG_ZSMALLOC=y"
+          append_if_missing "CONFIG_CRYPTO_LZ4=y"
+          append_if_missing "CONFIG_CRYPTO_ZSTD=y"
+
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: Patch GPU freq table (OC + UV)
+        run: |
+          python3 kernel/patch_gpu_dtsi.py \
+            --dtsi kernel/kernel_devicetree/qcom/parrot-gpu.dtsi \
+            --oc-freq ${{ github.event.inputs.gpu_oc_freq }} \
+            --oc-acd "${{ github.event.inputs.gpu_oc_acd }}" \
+            --apply-uv ${{ github.event.inputs.apply_uv }}
+
+      - name: Build kernel (make)
+        working-directory: kernel
+        run: |
+          set -o pipefail
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LLVM=1
+          export LLVM_IAS=1
+          
+          {
+            make O=out -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          } 2>&1 | tee ../build.log
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/dtbs
+          cp kernel/kernel_devicetree/qcom/parrot-gpu.dtsi artifacts/patched_gpu_source.dtsi || true
+          
+          find kernel/out -name "Image" -exec cp {} artifacts/ \; 2>/dev/null || true
+          find kernel/out -name "dtbo.img" -exec cp {} artifacts/ \; 2>/dev/null || true
+          find kernel/out -name "*.dtb" -exec cp {} artifacts/dtbs/ \; 2>/dev/null || true
+
+      - name: Upload kernel images
+        uses: actions/upload-artifact@v4
+        with:
+          name: garnet-kernel-${{ github.event.inputs.gpu_oc_freq }}hz
+          path: artifacts/
+          retention-days: 7
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
