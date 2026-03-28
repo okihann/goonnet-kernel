@@ -119,10 +119,11 @@ jobs:
       - name: Configure and Patch Kernel
         working-directory: kernel
         run: |
-          # Define the missing function here
           append_if_missing() {
             grep -qF "$1" "$CONFIG_FILE" || echo "$1" >> "$CONFIG_FILE"
           }
+          
+          find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
           
           export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
           
@@ -135,17 +136,21 @@ jobs:
           [ ! -z "$GKI_FRAG" ] && $CONF "$GKI_FRAG"
           
           CONFIG_FILE="out/.config"
-          
-          # You can now safely use the function
-          append_if_missing "CONFIG_TCP_CONG_BBR=y"
-          append_if_missing 'CONFIG_DEFAULT_TCP_CONG="bbr"'
+
           append_if_missing "CONFIG_KPM=y"
           append_if_missing "CONFIG_KALLSYMS=y"
           append_if_missing "CONFIG_KALLSYMS_ALL=y"
+          append_if_missing "CONFIG_TCP_CONG_BBR=y"
+          append_if_missing 'CONFIG_DEFAULT_TCP_CONG="bbr"'
           append_if_missing "CONFIG_ZRAM=y"
           append_if_missing "CONFIG_ZSMALLOC=y"
           append_if_missing "CONFIG_CRYPTO_LZ4=y"
           append_if_missing "CONFIG_CRYPTO_ZSTD=y"
+          append_if_missing "CONFIG_UBSAN=n"
+          append_if_missing "CONFIG_KASAN=n"
+          append_if_missing "CONFIG_INIT_STACK_NONE=y"
+          append_if_missing "CONFIG_INIT_ON_ALLOC_DEFAULT_ON=n"
+          append_if_missing "CONFIG_INIT_ON_FREE_DEFAULT_ON=n"
 
           yes "" | $CONF olddefconfig
       
