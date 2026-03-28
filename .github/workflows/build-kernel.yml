@@ -88,6 +88,7 @@ jobs:
           cat <<EOF > dummy_hwid.h
           #ifndef _HWID_H_
           #define _HWID_H_
+          #include <linux/types.h>
           
           static inline int get_hw_country_version(void) { return 0; }
           static inline int get_hw_version_platform(void) { return 0; }
@@ -102,9 +103,11 @@ jobs:
           #endif
           EOF
           
-          mkdir -p drivers/soc/qcom/icnss2/
-          cp dummy_hwid.h drivers/soc/qcom/icnss2/hwid.h
-          cp dummy_hwid.h drivers/misc/hwid.h
+          echo "Distributing dummy headers..."
+          grep -rl "hwid.h" . | xargs -I {} dirname {} | sort -u | while read -r dir; do
+            echo "Patching $dir"
+            cp dummy_hwid.h "$dir/hwid.h"
+          done
           
           PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
           if [ ! -z "$PLAID_CALLER" ]; then
