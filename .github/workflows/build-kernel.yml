@@ -122,9 +122,7 @@ jobs:
           append_if_missing() {
             grep -qF "$1" "$CONFIG_FILE" || echo "$1" >> "$CONFIG_FILE"
           }
-          
-          find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
-          
+                    
           export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
           
           $CONF gki_defconfig
@@ -173,7 +171,7 @@ jobs:
           export LLVM_IAS=1
           
           {
-            make O=out -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          make O=out -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS="-Wno-error"
           } 2>&1 | tee ../build.log
 
       - name: Collect artifacts
