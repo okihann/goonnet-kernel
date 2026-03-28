@@ -81,32 +81,37 @@ jobs:
         run: |
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
           sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
-
+          
           sed -i '/hwid/d' drivers/misc/Makefile
           sed -i '/plaid/d' drivers/misc/Makefile
-
-          mkdir -p drivers/soc/qcom/icnss2/
-          cat <<EOF > drivers/soc/qcom/icnss2/hwid.h
+          
+          cat <<EOF > dummy_hwid.h
           #ifndef _HWID_H_
           #define _HWID_H_
-
+          
           static inline int get_hw_country_version(void) { return 0; }
           static inline int get_hw_version_platform(void) { return 0; }
-
+          
           #define HARDWARE_PROJECT_L9S 0
           #define HARDWARE_PROJECT_N16 1
           #define CountryGlobal 0
           #define CountryIndia 1
-
+          
           #endif
           EOF
-
+          
+          mkdir -p drivers/soc/qcom/icnss2/
+          cp dummy_hwid.h drivers/soc/qcom/icnss2/hwid.h
+          cp dummy_hwid.h drivers/misc/hwid.h
+          
           PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
           if [ ! -z "$PLAID_CALLER" ]; then
             PLAID_DIR=$(dirname "$PLAID_CALLER")
             echo "Creating dummy plaid.h in $PLAID_DIR"
             echo "/* Dummy */" > "$PLAID_DIR/plaid.h"
           fi
+          
+          rm dummy_hwid.h
 
       - name: Configure and Patch Kernel
         working-directory: kernel
