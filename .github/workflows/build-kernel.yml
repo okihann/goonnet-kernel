@@ -79,56 +79,45 @@ jobs:
       - name: Fix broken Xiaomi dependencies
         working-directory: kernel
         run: |
+          sed -i '/hwid/d' drivers/misc/Makefile
+          sed -i '/plaid/d' drivers/misc/Makefile
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
           sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
           
-          sed -i '/hwid/d' drivers/misc/Makefile
-          sed -i '/plaid/d' drivers/misc/Makefile
+          echo "#ifndef _HWID_H_" > dummy_hwid.h
+          echo "#define _HWID_H_" >> dummy_hwid.h
+          echo "static inline int get_hw_country_version(void) { return 0; }" >> dummy_hwid.h
+          echo "static inline int get_hw_version_platform(void) { return 0; }" >> dummy_hwid.h
           
-          cat <<EOF > dummy_hwid.h
-          #ifndef _HWID_H_
-          #define _HWID_H_
-          #include <linux/types.h>
+          grep -rE "HARDWARE_PROJECT_|Country[A-Z]" . --exclude="dummy_hwid.h" | grep -oE "HARDWARE_PROJECT_[A-Z0-9_]+|Country[A-Z][a-zA-Z]+" | sort -u | while read -r line; do
+            echo "#define $line 0" >> dummy_hwid.h
+          done
+          echo "#endif" >> dummy_hwid.h
           
-          static inline int get_hw_country_version(void) { return 0; }
-          static inline int get_hw_version_platform(void) { return 0; }
-          
-          #define HARDWARE_PROJECT_L9S 0
-          #define HARDWARE_PROJECT_N16 1
-          #define CountryGlobal 0
-          #define CountryIndia 1
-          #define CountryCN 2
-          #define CountryJapan 3
-          
-          #endif
-          EOF
-          
-          echo "Distributing dummy headers..."
           grep -rl "hwid.h" . | xargs -I {} dirname {} | sort -u | while read -r dir; do
-            echo "Patching $dir"
             cp dummy_hwid.h "$dir/hwid.h"
           done
+          
+          sed -i '1210i #if 0' drivers/usb/gadget/udc/core.c
+          sed -i '1250a #endif' drivers/usb/gadget/udc/core.c
           
           PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
           if [ ! -z "$PLAID_CALLER" ]; then
             PLAID_DIR=$(dirname "$PLAID_CALLER")
-            echo "Creating dummy plaid.h in $PLAID_DIR"
             echo "/* Dummy */" > "$PLAID_DIR/plaid.h"
           fi
-          
           rm dummy_hwid.h
-
+          
       - name: Configure and Patch Kernel
         working-directory: kernel
         run: |
-          FRAGMENT=$(find arch/arm64/configs/vendor -type f \( -name "*garnet*GKI.config" -o -name "*parrot*GKI.config" \) | head -1)
-          FRAGMENT_TARGET=$(echo "$FRAGMENT" | sed 's|arch/arm64/configs/||')
-          
-          echo "Base: gki_defconfig"
-          echo "Fragment: $FRAGMENT_TARGET"
-          
           make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$FRAGMENT_TARGET"
+
+          CONSOLIDATE=$(find arch/arm64/configs/vendor -name "garnet_consolidate.config" | sed 's|arch/arm64/configs/||')
+          [ ! -z "$CONSOLIDATE" ] && make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$CONSOLIDATE"
+
+          GKI_FRAG=$(find arch/arm64/configs/vendor -name "garnet_GKI.config" | sed 's|arch/arm64/configs/||')
+          [ ! -z "$GKI_FRAG" ] && make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "$GKI_FRAG"
           
           CONFIG_FILE="out/.config"
           append_if_missing() {
