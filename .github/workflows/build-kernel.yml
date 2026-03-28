@@ -103,9 +103,9 @@ jobs:
           content = open('drivers/usb/gadget/udc/core.c').read()
           funcs = ['usb_gadget_enable_async_callbacks', 'usb_gadget_disable_async_callbacks']
           for f in funcs:
-            parts = content.split('static inline void ' + f)
-            if len(parts) > 2:
-            content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + parts[2] + '#endif\n'
+              parts = content.split('static inline void ' + f)
+              if len(parts) > 2:
+                  content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + parts[2] + '#endif\n'
           open('drivers/usb/gadget/udc/core.c', 'w').write(content)
           "
           
