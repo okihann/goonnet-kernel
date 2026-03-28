@@ -96,6 +96,8 @@ jobs:
           #define HARDWARE_PROJECT_N16 1
           #define CountryGlobal 0
           #define CountryIndia 1
+          #define CountryCN 2
+          #define CountryJapan 3
           
           #endif
           EOF
