@@ -77,24 +77,33 @@ jobs:
         working-directory: kernel
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
-          
+
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10
           cp susfs4ksu/kernel_patches/fs/* fs/
           cp susfs4ksu/kernel_patches/include/linux/* include/linux/
           
           sed -i '/diff --git a\/security\/selinux\/avc\.c/,$d' susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
           
-          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
 
           cd KernelSU
           
-          sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.h
-          sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.c
+          SUPERCALL_C=$(find kernel -name "supercall.c" | head -n 1)
+          SUPERCALL_H=$(find kernel -name "supercall.h" | head -n 1)
           
-          CMD_DEF=$(grep "define CMD_SUSFS_CONTROL" ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch)
-          sed -i "2i $CMD_DEF" kernel/supercall/supercall.h
+          if [ ! -z "$SUPERCALL_C" ]; then
+            sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_C"
+            sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' "$SUPERCALL_C"
+          fi
           
-          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' kernel/supercall/supercall.c
+          if [ ! -z "$SUPERCALL_H" ]; then
+            sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_H"
+            
+            CMD_DEF=$(grep -h "define.*CMD_SUSFS_CONTROL" ../susfs4ksu/kernel_patches/KernelSU/*.patch 2>/dev/null | sed 's/^+//' || true)
+            if [ ! -z "$CMD_DEF" ]; then
+              sed -i "2i $CMD_DEF" "$SUPERCALL_H"
+            fi
+          fi
 
       - name: Fix broken Xiaomi & SukiSU dependencies
         working-directory: kernel
