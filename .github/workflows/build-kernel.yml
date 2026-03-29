@@ -77,11 +77,23 @@ jobs:
         working-directory: kernel
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
-
-          sed -i '1i #include <linux/susfs.h>' KernelSU/kernel/supercall.h
-          sed -i '1i #include <linux/susfs.h>' KernelSU/kernel/supercall.c
-          sed -i '1i #include <linux/susfs.h>' KernelSU/kernel/uapi.h
-          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' KernelSU/kernel/supercall.c
+          
+          SUPERCALL_C=$(find KernelSU/kernel -name "supercall.c")
+          SUPERCALL_H=$(find KernelSU/kernel -name "supercall.h")
+          
+          UAPI_FILE=$(grep -rl "CMD_GRANT_ROOT" KernelSU/kernel | grep "\.h" | head -n 1)
+          
+          echo "Detected supercall.c at: $SUPERCALL_C"
+          echo "Detected supercall.h at: $SUPERCALL_H"
+          echo "Detected UAPI file at: $UAPI_FILE"
+          
+          [ ! -z "$SUPERCALL_C" ] && sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_C"
+          [ ! -z "$SUPERCALL_H" ] && sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_H"
+          [ ! -z "$UAPI_FILE" ] && sed -i '1i #include <linux/susfs.h>' "$UAPI_FILE"
+          
+          if [ ! -z "$SUPERCALL_C" ]; then
+            sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' "$SUPERCALL_C"
+          fi
           
       - name: Apply susfs core patches (5.10)
         working-directory: kernel
