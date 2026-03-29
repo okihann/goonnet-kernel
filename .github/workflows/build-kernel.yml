@@ -78,11 +78,11 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
 
-          sed -i '4i #include <linux/susfs.h>' KernelSU/kernel/supercall/supercall.h
-          sed -i '11i #include <linux/susfs.h>' KernelSU/kernel/supercall/supercall.c
-          sed -i '4i #include <linux/susfs.h>' KernelSU/kernel/supercall/uapi/supercall.h
-          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' KernelSU/kernel/supercall/supercall.c
-
+          sed -i '1i #include <linux/susfs.h>' KernelSU/kernel/supercall.h
+          sed -i '1i #include <linux/susfs.h>' KernelSU/kernel/supercall.c
+          sed -i '1i #include <linux/susfs.h>' KernelSU/kernel/uapi.h
+          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' KernelSU/kernel/supercall.c
+          
       - name: Apply susfs core patches (5.10)
         working-directory: kernel
         run: |
