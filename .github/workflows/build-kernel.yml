@@ -78,22 +78,20 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
           
-          SUPERCALL_C=$(find KernelSU/kernel -name "supercall.c")
-          SUPERCALL_H=$(find KernelSU/kernel -name "supercall.h")
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10
+          cp susfs4ksu/kernel_patches/fs/* fs/
+          cp susfs4ksu/kernel_patches/include/linux/* include/linux/
+          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
           
-          UAPI_FILE=$(grep -rl "CMD_GRANT_ROOT" KernelSU/kernel | grep "\.h" | head -n 1)
+          cd KernelSU
           
-          echo "Detected supercall.c at: $SUPERCALL_C"
-          echo "Detected supercall.h at: $SUPERCALL_H"
-          echo "Detected UAPI file at: $UAPI_FILE"
+          sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.h
+          sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.c
           
-          [ ! -z "$SUPERCALL_C" ] && sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_C"
-          [ ! -z "$SUPERCALL_H" ] && sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_H"
-          [ ! -z "$UAPI_FILE" ] && sed -i '1i #include <linux/susfs.h>' "$UAPI_FILE"
+          CMD_DEF=$(grep "define CMD_SUSFS_CONTROL" ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch)
+          sed -i "2i $CMD_DEF" kernel/supercall/supercall.h
           
-          if [ ! -z "$SUPERCALL_C" ]; then
-            sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' "$SUPERCALL_C"
-          fi
+          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' kernel/supercall/supercall.c
           
       - name: Apply susfs core patches (5.10)
         working-directory: kernel
