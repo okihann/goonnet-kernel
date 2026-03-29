@@ -23,10 +23,9 @@ on:
           - 'false'
       sukisu_variant:
         description: 'SuKiSU variant'
-        default: 'susfs-main'
+        default: 'main'
         type: choice
         options:
-          - 'susfs-main'
           - 'main'
 
 jobs:
@@ -77,11 +76,28 @@ jobs:
       - name: Apply SuKiSU patch
         working-directory: kernel
         run: |
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'susfs-main' }}
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
 
-      - name: Fix broken Xiaomi dependencies
+      - name: Apply susfs core patches (5.10)
         working-directory: kernel
         run: |
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10
+          
+          cp susfs4ksu/kernel_patches/fs/* fs/
+          cp susfs4ksu/kernel_patches/include/linux/* include/linux/
+          
+          patch -p1 < susfs4ksu/kernel_patches/5.10_susfs_core.patch
+          
+          cd KernelSU
+          patch -p1 < ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+
+      - name: Fix broken Xiaomi & SukiSU dependencies
+        working-directory: kernel
+        run: |
+          if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
+            sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' drivers/kernelsu/kpm/kpm.h
+          fi
+          
           sed -i '/hwid/d' drivers/misc/Makefile
           sed -i '/plaid/d' drivers/misc/Makefile
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
@@ -155,8 +171,8 @@ jobs:
           append_if_missing "CONFIG_INIT_STACK_NONE=y"
           append_if_missing "CONFIG_INIT_ON_ALLOC_DEFAULT_ON=n"
           append_if_missing "CONFIG_INIT_ON_FREE_DEFAULT_ON=n"
-
-          yes "" | $CONF olddefconfig
+          
+          $CONF olddefconfig
       
       - name: Patch GPU freq table (OC + UV)
         run: |
@@ -170,14 +186,9 @@ jobs:
         working-directory: kernel
         run: |
           set -o pipefail
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export LLVM=1
-          export LLVM_IAS=1
           
           {
-            make O=out -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+            make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
           } 2>&1 | tee ../build.log
 
       - name: Collect artifacts
