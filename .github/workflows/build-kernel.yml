@@ -36,16 +36,9 @@ jobs:
     steps:
       - name: Free disk space
         run: |
-          echo "=== Disk before cleanup ==="
-          df -h
-          sudo rm -rf \
-            /usr/share/dotnet /usr/share/swift /usr/local/lib/android /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" \
-            /usr/local/share/chromium /usr/share/php /usr/share/ruby
+          sudo rm -rf /usr/share/dotnet /usr/share/swift /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
           sudo apt-get clean
           sudo docker system prune -af 2>/dev/null || true
-          echo "=== Disk after cleanup ==="
-          df -h
 
       - name: Install build dependencies
         run: |
@@ -83,56 +76,42 @@ jobs:
           cp susfs4ksu/kernel_patches/include/linux/* include/linux/
           
           sed -i '/diff --git a\/security\/selinux\/avc\.c/,$d' susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
-          
           patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
 
           cd KernelSU
           
-          SUPERCALL_C=$(find kernel -name "supercall.c" | head -n 1)
-          SUPERCALL_H=$(find kernel -name "supercall.h" | head -n 1)
+          sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.h
+          sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.c
+          sed -i '1i #include <linux/susfs.h>' uapi/supercall.h
           
-          if [ ! -z "$SUPERCALL_C" ]; then
-            sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_C"
-            sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' "$SUPERCALL_C"
-          fi
+          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' kernel/supercall/supercall.c
           
-          if [ ! -z "$SUPERCALL_H" ]; then
-            sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_H"
-            
-            CMD_DEF=$(grep -h "define.*CMD_SUSFS_CONTROL" ../susfs4ksu/kernel_patches/KernelSU/*.patch 2>/dev/null | sed 's/^+//' || true)
-            if [ ! -z "$CMD_DEF" ]; then
-              sed -i "2i $CMD_DEF" "$SUPERCALL_H"
-            fi
+          CMD_DEF=$(grep -h "define.*CMD_SUSFS_CONTROL" ../susfs4ksu/kernel_patches/KernelSU/*.patch 2>/dev/null | sed 's/^+//' || true)
+          if [ ! -z "$CMD_DEF" ]; then
+            sed -i "2i $CMD_DEF" uapi/supercall.h
           fi
 
       - name: Fix broken Xiaomi & SukiSU dependencies
         working-directory: kernel
         run: |
+
           if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
             sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' drivers/kernelsu/kpm/kpm.h
           fi
           
+          echo "KBUILD_CFLAGS += -Wno-error" >> Makefile
+          echo "KBUILD_CPPFLAGS += -Wno-error" >> Makefile
+
           sed -i '/hwid/d' drivers/misc/Makefile
           sed -i '/plaid/d' drivers/misc/Makefile
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
           sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
           
-          echo "#ifndef _HWID_H_" > dummy_hwid.h
-          echo "#define _HWID_H_" >> dummy_hwid.h
-          echo "static inline int get_hw_country_version(void) { return 0; }" >> dummy_hwid.h
-          echo "static inline int get_hw_version_platform(void) { return 0; }" >> dummy_hwid.h
-          
-          grep -rE "HARDWARE_PROJECT_|Country[A-Z]" . --exclude="dummy_hwid.h" | grep -oE "HARDWARE_PROJECT_[A-Z0-9_]+|Country[A-Z][a-zA-Z]+" | sort -u | while read -r line; do
-            echo "#define $line 0" >> dummy_hwid.h
-          done
-          echo "#endif" >> dummy_hwid.h
-          
-          grep -rl "hwid.h" . | xargs -I {} dirname {} | sort -u | while read -r dir; do
-            cp dummy_hwid.h "$dir/hwid.h"
-          done
+          echo -e "#ifndef _HWID_H_\n#define _HWID_H_\nstatic inline int get_hw_country_version(void) { return 0; }\nstatic inline int get_hw_version_platform(void) { return 0; }\n#endif" > dummy_hwid.h
+          grep -rl "hwid.h" . | xargs -I {} dirname {} | sort -u | while read -r dir; do cp dummy_hwid.h "$dir/hwid.h"; done
+          rm dummy_hwid.h
           
           python3 -c "
-          import sys
           content = open('drivers/usb/gadget/udc/core.c').read()
           funcs = ['usb_gadget_enable_async_callbacks', 'usb_gadget_disable_async_callbacks']
           for f in funcs:
@@ -142,13 +121,6 @@ jobs:
           open('drivers/usb/gadget/udc/core.c', 'w').write(content)
           "
           
-          PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
-          if [ ! -z "$PLAID_CALLER" ]; then
-            PLAID_DIR=$(dirname "$PLAID_CALLER")
-            echo "/* Dummy */" > "$PLAID_DIR/plaid.h"
-          fi
-          rm dummy_hwid.h
-          
       - name: Configure and Patch Kernel
         working-directory: kernel
         run: |
@@ -156,42 +128,36 @@ jobs:
             grep -qF "$1" "$CONFIG_FILE" || echo "$1" >> "$CONFIG_FILE"
           }
           
-          echo "KBUILD_CFLAGS += -Wno-error" >> Makefile
-          echo "KBUILD_CPPFLAGS += -Wno-error" >> Makefile
-          
           export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
-          
           $CONF gki_defconfig
 
           CONSOLIDATE=$(find arch/arm64/configs/vendor -name "garnet_consolidate.config" | sed 's|arch/arm64/configs/||')
           [ ! -z "$CONSOLIDATE" ] && $CONF "$CONSOLIDATE"
-
           GKI_FRAG=$(find arch/arm64/configs/vendor -name "garnet_GKI.config" | sed 's|arch/arm64/configs/||')
           [ ! -z "$GKI_FRAG" ] && $CONF "$GKI_FRAG"
           
           CONFIG_FILE="out/.config"
 
-          append_if_missing "CONFIG_KPM=y"
-          append_if_missing "CONFIG_KALLSYMS=y"
-          append_if_missing "CONFIG_KALLSYMS_ALL=y"
           append_if_missing "CONFIG_TCP_CONG_BBR=y"
           append_if_missing 'CONFIG_DEFAULT_TCP_CONG="bbr"'
           append_if_missing "CONFIG_ZRAM=y"
+          append_if_missing "CONFIG_ZSMALLOC=y"
+          append_if_missing "CONFIG_CRYPTO_LZ4=y"
+          append_if_missing "CONFIG_CRYPTO_ZSTD=y"
+
           append_if_missing "CONFIG_KSU=y"
           append_if_missing "CONFIG_KSU_SUSFS=y"
           append_if_missing "CONFIG_KSU_SUSFS_SUS_PATH=y"
           append_if_missing "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
           append_if_missing "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
           append_if_missing "CONFIG_KSU_SUSFS_ENABLE_ALGO=y"
-          append_if_missing "CONFIG_ZSMALLOC=y"
-          append_if_missing "CONFIG_CRYPTO_LZ4=y"
-          append_if_missing "CONFIG_CRYPTO_ZSTD=y"
+          
           append_if_missing "CONFIG_UBSAN=n"
           append_if_missing "CONFIG_KASAN=n"
           append_if_missing "CONFIG_INIT_STACK_NONE=y"
           append_if_missing "CONFIG_INIT_ON_ALLOC_DEFAULT_ON=n"
           append_if_missing "CONFIG_INIT_ON_FREE_DEFAULT_ON=n"
-          
+
           $CONF olddefconfig
       
       - name: Patch GPU freq table (OC + UV)
@@ -206,7 +172,6 @@ jobs:
         working-directory: kernel
         run: |
           set -o pipefail
-          
           {
             make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
           } 2>&1 | tee ../build.log
@@ -215,7 +180,6 @@ jobs:
         run: |
           mkdir -p artifacts/dtbs
           cp kernel/kernel_devicetree/qcom/parrot-gpu.dtsi artifacts/patched_gpu_source.dtsi || true
-          
           find kernel/out -name "Image" -exec cp {} artifacts/ \; 2>/dev/null || true
           find kernel/out -name "dtbo.img" -exec cp {} artifacts/ \; 2>/dev/null || true
           find kernel/out -name "*.dtb" -exec cp {} artifacts/dtbs/ \; 2>/dev/null || true
