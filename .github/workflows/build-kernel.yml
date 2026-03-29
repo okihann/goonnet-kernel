@@ -116,9 +116,11 @@ jobs:
             rm -rf /tmp/ksu_temp
           fi
 
-          if [ -f "drivers/kernelsu/kpm/Makefile" ]; then
-            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> drivers/kernelsu/kpm/Makefile
-          fi
+          find drivers/kernelsu -name "Makefile" | while read makefile; do
+            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> "$makefile"
+            # Some newer forks also use an include folder, adding just in case
+            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> "$makefile" 
+          done
 
           if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
             sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' drivers/kernelsu/kpm/kpm.h
