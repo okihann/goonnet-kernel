@@ -73,7 +73,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: kernel/kernel_devicetree
 
-      - name: Apply SuKiSU patch
+       - name: Apply SuKiSU & SUSFS Hooks
         working-directory: kernel
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
@@ -81,8 +81,11 @@ jobs:
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10
           cp susfs4ksu/kernel_patches/fs/* fs/
           cp susfs4ksu/kernel_patches/include/linux/* include/linux/
-          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
           
+          sed -i '/diff --git a\/security\/selinux\/avc\.c/,$d' susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+          
+          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+
           cd KernelSU
           
           sed -i '1i #include <linux/susfs.h>' kernel/supercall/supercall.h
@@ -92,19 +95,6 @@ jobs:
           sed -i "2i $CMD_DEF" kernel/supercall/supercall.h
           
           sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' kernel/supercall/supercall.c
-          
-      - name: Apply susfs core patches (5.10)
-        working-directory: kernel
-        run: |
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10
-          
-          cp susfs4ksu/kernel_patches/fs/* fs/
-          cp susfs4ksu/kernel_patches/include/linux/* include/linux/
-          
-          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
-          
-          cd KernelSU
-          patch -p1 < ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
       - name: Fix broken Xiaomi & SukiSU dependencies
         working-directory: kernel
