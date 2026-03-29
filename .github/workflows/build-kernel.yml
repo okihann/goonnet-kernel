@@ -112,10 +112,11 @@ jobs:
             sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' drivers/kernelsu/kpm/kpm.h
           fi
           
-          find drivers/kernelsu -type f | grep -E '/(Kbuild|Makefile)$' | while read -r buildfile; do
-            sed -i '1i ccflags-y += -I$(srctree)/drivers/kernelsu' "$buildfile"
-            sed -i '2i subdir-ccflags-y += -I$(srctree)/drivers/kernelsu' "$buildfile"
-          done
+          if [ -d "drivers/kernelsu/uapi" ]; then
+            ln -sf ../drivers/kernelsu/uapi include/ksu_uapi
+            find drivers/kernelsu -type f -name "*.[ch]" -exec sed -i '/#include/ s|"uapi/\(.*\)"|<ksu_uapi/\1>|g' {} +
+            find drivers/kernelsu -type f -name "*.[ch]" -exec sed -i '/#include/ s|<uapi/\(.*\)>|<ksu_uapi/\1>|g' {} +
+          fi
           
           sed -i '/hwid/d' drivers/misc/Makefile
           sed -i '/plaid/d' drivers/misc/Makefile
@@ -213,7 +214,7 @@ jobs:
           set -o pipefail
           
           {
-            make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS="-I$(pwd)/drivers/kernelsu"
+            make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
           } 2>&1 | tee ../build.log
 
       - name: Collect artifacts
