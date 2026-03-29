@@ -108,14 +108,20 @@ jobs:
       - name: Fix broken Xiaomi & SukiSU dependencies
         working-directory: kernel
         run: |
+          if [ -d "KernelSU/uapi" ]; then
+            cp -r KernelSU/uapi drivers/kernelsu/
+          else
+            git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git /tmp/ksu_temp -b ${{ github.event.inputs.sukisu_variant || 'main' }}
+            cp -r /tmp/ksu_temp/uapi drivers/kernelsu/ 2>/dev/null || true
+            rm -rf /tmp/ksu_temp
+          fi
+
+          if [ -f "drivers/kernelsu/kpm/Makefile" ]; then
+            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> drivers/kernelsu/kpm/Makefile
+          fi
+
           if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
             sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' drivers/kernelsu/kpm/kpm.h
-          fi
-          
-          if [ -d "drivers/kernelsu/uapi" ]; then
-            ln -sf ../drivers/kernelsu/uapi include/ksu_uapi
-            find drivers/kernelsu -type f -name "*.[ch]" -exec sed -i '/#include/ s|"uapi/\(.*\)"|<ksu_uapi/\1>|g' {} +
-            find drivers/kernelsu -type f -name "*.[ch]" -exec sed -i '/#include/ s|<uapi/\(.*\)>|<ksu_uapi/\1>|g' {} +
           fi
           
           sed -i '/hwid/d' drivers/misc/Makefile
