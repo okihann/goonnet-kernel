@@ -78,6 +78,11 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_variant || 'main' }}
 
+          sed -i '4i #include <linux/susfs.h>' KernelSU/kernel/supercall/supercall.h
+          sed -i '11i #include <linux/susfs.h>' KernelSU/kernel/supercall/supercall.c
+          sed -i '4i #include <linux/susfs.h>' KernelSU/kernel/supercall/uapi/supercall.h
+          sed -i '/return -EPERM;/i \	if (susfs_is_susfs_enabled && cmd == CMD_SUSFS_CONTROL) return 0;' KernelSU/kernel/supercall/supercall.c
+
       - name: Apply susfs core patches (5.10)
         working-directory: kernel
         run: |
@@ -163,6 +168,12 @@ jobs:
           append_if_missing "CONFIG_TCP_CONG_BBR=y"
           append_if_missing 'CONFIG_DEFAULT_TCP_CONG="bbr"'
           append_if_missing "CONFIG_ZRAM=y"
+          append_if_missing "CONFIG_KSU=y"
+          append_if_missing "CONFIG_KSU_SUSFS=y"
+          append_if_missing "CONFIG_KSU_SUSFS_SUS_PATH=y"
+          append_if_missing "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+          append_if_missing "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+          append_if_missing "CONFIG_KSU_SUSFS_ENABLE_ALGO=y"
           append_if_missing "CONFIG_ZSMALLOC=y"
           append_if_missing "CONFIG_CRYPTO_LZ4=y"
           append_if_missing "CONFIG_CRYPTO_ZSTD=y"
