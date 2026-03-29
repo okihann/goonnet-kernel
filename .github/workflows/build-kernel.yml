@@ -86,7 +86,7 @@ jobs:
           cp susfs4ksu/kernel_patches/fs/* fs/
           cp susfs4ksu/kernel_patches/include/linux/* include/linux/
           
-          patch -p1 < susfs4ksu/kernel_patches/5.10_susfs_core.patch
+          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
           
           cd KernelSU
           patch -p1 < ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
