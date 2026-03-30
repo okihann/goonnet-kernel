@@ -82,6 +82,9 @@ jobs:
           cp susfs4ksu/kernel_patches/fs/* fs/
           cp susfs4ksu/kernel_patches/include/linux/* include/linux/
           
+          sed -i '1i #include <linux/cred.h>' include/linux/susfs_def.h || true
+          sed -i '1i #include <linux/cred.h>' include/linux/susfs.h || true
+          
           sed -i '/diff --git a\/security\/selinux\/avc\.c/,$d' susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
           
           patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
