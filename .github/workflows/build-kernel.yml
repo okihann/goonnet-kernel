@@ -108,15 +108,14 @@ jobs:
       - name: Fix broken Xiaomi & SukiSU dependencies
         working-directory: kernel
         run: |
-          # FIX: Copy the missing uapi folder directly into the symlinked kernel folder!
           if [ -d "KernelSU/uapi" ]; then
             cp -r KernelSU/uapi KernelSU/kernel/
           fi
           
-          # Ensure Kbuild recognizes the new include path
-          if [ -f "KernelSU/kernel/kpm/Makefile" ]; then
-            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> KernelSU/kernel/kpm/Makefile
-          fi
+          find KernelSU/kernel -name "Makefile" | while read makefile; do
+            grep -q "ccflags-y += -I\$(srctree)/drivers/kernelsu" "$makefile" || echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> "$makefile"
+            grep -q "ccflags-y += -I\$(srctree)/drivers/kernelsu/include" "$makefile" || echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> "$makefile"
+          done
 
           if [ -f "KernelSU/kernel/kpm/kpm.h" ]; then
             sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' KernelSU/kernel/kpm/kpm.h
