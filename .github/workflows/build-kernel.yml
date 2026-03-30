@@ -108,22 +108,18 @@ jobs:
       - name: Fix broken Xiaomi & SukiSU dependencies
         working-directory: kernel
         run: |
+          # FIX: Copy the missing uapi folder directly into the symlinked kernel folder!
           if [ -d "KernelSU/uapi" ]; then
-            cp -r KernelSU/uapi drivers/kernelsu/
-          else
-            git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git /tmp/ksu_temp -b ${{ github.event.inputs.sukisu_variant || 'main' }}
-            cp -r /tmp/ksu_temp/uapi drivers/kernelsu/ 2>/dev/null || true
-            rm -rf /tmp/ksu_temp
+            cp -r KernelSU/uapi KernelSU/kernel/
+          fi
+          
+          # Ensure Kbuild recognizes the new include path
+          if [ -f "KernelSU/kernel/kpm/Makefile" ]; then
+            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> KernelSU/kernel/kpm/Makefile
           fi
 
-          find drivers/kernelsu -name "Makefile" | while read makefile; do
-            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> "$makefile"
-            # Some newer forks also use an include folder, adding just in case
-            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> "$makefile" 
-          done
-
-          if [ -f "drivers/kernelsu/kpm/kpm.h" ]; then
-            sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' drivers/kernelsu/kpm/kpm.h
+          if [ -f "KernelSU/kernel/kpm/kpm.h" ]; then
+            sed -i 's/static const __u32 KSU_IOCTL_KPM _IOC/#define KSU_IOCTL_KPM _IOC/g' KernelSU/kernel/kpm/kpm.h
           fi
           
           sed -i '/hwid/d' drivers/misc/Makefile
