@@ -150,7 +150,9 @@ jobs:
           for f in funcs:
               parts = content.split('static inline void ' + f)
               if len(parts) > 2:
-                  content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + parts[2] + '#endif\n'
+                  sub_parts = parts[2].split('}', 1)
+                  if len(sub_parts) == 2:
+                      content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + sub_parts[0] + '}\n#endif\n' + sub_parts[1]
           open('drivers/usb/gadget/udc/core.c', 'w').write(content)
           "
           
