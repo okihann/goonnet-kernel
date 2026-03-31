@@ -86,11 +86,9 @@ jobs:
           sed -i '1i #include <linux/cred.h>' include/linux/susfs.h || true
           
           sed -i '/diff --git a\/security\/selinux\/avc\.c/,$d' susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
-          
           patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
 
           cd KernelSU
-          
           SUPERCALL_C=$(find kernel -name "supercall.c" | head -n 1)
           SUPERCALL_H=$(find kernel -name "supercall.h" | head -n 1)
           
@@ -101,7 +99,6 @@ jobs:
           
           if [ ! -z "$SUPERCALL_H" ]; then
             sed -i '1i #include <linux/susfs.h>' "$SUPERCALL_H"
-            
             CMD_DEF=$(grep -h "define.*CMD_SUSFS_CONTROL" ../susfs4ksu/kernel_patches/KernelSU/*.patch 2>/dev/null | sed 's/^+//' || true)
             if [ ! -z "$CMD_DEF" ]; then
               sed -i "2i $CMD_DEF" "$SUPERCALL_H"
@@ -133,7 +130,6 @@ jobs:
           echo "#define _HWID_H_" >> dummy_hwid.h
           echo "static inline int get_hw_country_version(void) { return 0; }" >> dummy_hwid.h
           echo "static inline int get_hw_version_platform(void) { return 0; }" >> dummy_hwid.h
-          
           grep -rE "HARDWARE_PROJECT_|Country[A-Z]" . --exclude="dummy_hwid.h" | grep -oE "HARDWARE_PROJECT_[A-Z0-9_]+|Country[A-Z][a-zA-Z]+" | sort -u | while read -r line; do
             echo "#define $line 0" >> dummy_hwid.h
           done
@@ -220,25 +216,34 @@ jobs:
         working-directory: kernel
         run: |
           set -o pipefail
-          
           {
             make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
           } 2>&1 | tee ../build.log
 
-      - name: Collect artifacts
+      - name: Package with AnyKernel3
         run: |
-          mkdir -p artifacts/dtbs
-          cp kernel/kernel_devicetree/qcom/parrot-gpu.dtsi artifacts/patched_gpu_source.dtsi || true
+          git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/README.md
           
-          find kernel/out -name "Image" -exec cp {} artifacts/ \; 2>/dev/null || true
-          find kernel/out -name "dtbo.img" -exec cp {} artifacts/ \; 2>/dev/null || true
-          find kernel/out -name "*.dtb" -exec cp {} artifacts/dtbs/ \; 2>/dev/null || true
+          find kernel/out -name "Image" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
+          find kernel/out -name "dtbo.img" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
+          
+          cd AnyKernel3
+          sed -i 's/device.name1=maguro/device.name1=garnet/' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=/' anykernel.sh
+          sed -i 's/device.name3=toroplus/device.name3=/' anykernel.sh
+          sed -i 's/device.name4=tuna/device.name4=/' anykernel.sh
+          sed -i 's/block=\/dev\/block\/platform\/omap\/omap_hsmmc.0\/by-name\/boot;/block=auto;/' anykernel.sh
+          sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
 
-      - name: Upload kernel images
+          # Zip it up into a flashable format
+          zip -r9 ../Garnet-Custom-Kernel-${{ github.event.inputs.gpu_oc_freq || '1000000000' }}Hz.zip *
+
+      - name: Upload Flashable Zip
         uses: actions/upload-artifact@v4
         with:
-          name: garnet-kernel-${{ github.event.inputs.gpu_oc_freq || '1000000000' }}hz
-          path: artifacts/
+          name: Garnet-Flashable-Kernel-${{ github.event.inputs.gpu_oc_freq || '1000000000' }}hz
+          path: Garnet-Custom-Kernel-*.zip
           retention-days: 7
 
       - name: Upload build log
