@@ -226,7 +226,9 @@ jobs:
           rm -rf AnyKernel3/.git AnyKernel3/README.md
           
           find kernel/out -name "Image" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
-          find kernel/out -name "dtbo.img" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
+          
+          echo "Gathering and concatenating device tree files..."
+          find kernel/out -name "*.dtb" -exec cat {} + > AnyKernel3/dtb || true
           
           cd AnyKernel3
           sed -i 's/device.name1=maguro/device.name1=garnet/' anykernel.sh
@@ -235,8 +237,11 @@ jobs:
           sed -i 's/device.name4=tuna/device.name4=/' anykernel.sh
           sed -i 's/block=\/dev\/block\/platform\/omap\/omap_hsmmc.0\/by-name\/boot;/block=auto;/' anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
+          
+          sed -i '/# init.rc/,$d' anykernel.sh
+          echo "write_boot; # repacks the new Image and flashes it" >> anykernel.sh
+          echo "## end boot install" >> anykernel.sh
 
-          # Zip it up into a flashable format
           zip -r9 ../Garnet-Custom-Kernel-${{ github.event.inputs.gpu_oc_freq || '1000000000' }}Hz.zip *
 
       - name: Upload Flashable Zip
