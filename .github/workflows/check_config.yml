@@ -64,7 +64,7 @@ jobs:
       - name: Download Halium checker script
         working-directory: kernel
         run: |
-          wget https://raw.githubusercontent.com/Halium/halium-scripts/master/check-kernel-config
+          wget https://raw.githubusercontent.com/Halium/halium-boot/master/check-kernel-config
           chmod +x check-kernel-config
 
       - name: Run Halium checker
