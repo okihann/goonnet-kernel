@@ -1,0 +1,65 @@
+name: Check Halium Kernel Config
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to checkout (e.g., garnet-halium)'
+        default: 'garnet-t-oss'
+        required: true
+
+jobs:
+  check-config:
+    name: Run check-kernel-config
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            flex bison build-essential gcc-aarch64-linux-gnu make python3
+
+      - name: Clone okihann garnet_kernel (Private)
+        uses: actions/checkout@v4
+        with:
+          repository: okihann/garnet-kernel
+          ref: ${{ github.event.inputs.branch }}
+          token: ${{ secrets.GH_PAT }}
+          path: kernel
+
+      - name: Clone okihann garnet_devicetree (Private)
+        uses: actions/checkout@v4
+        with:
+          repository: okihann/garnet-devicetree
+          ref: ${{ github.event.inputs.branch }}
+          token: ${{ secrets.GH_PAT }}
+          path: kernel/kernel_devicetree
+
+      - name: Generate final .config
+        working-directory: kernel
+        run: |
+          export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
+          
+          # Generate base GKI config
+          $CONF gki_defconfig
+
+          # Apply garnet vendor fragments if they exist
+          CONSOLIDATE=$(find arch/arm64/configs/vendor -name "garnet_consolidate.config" | sed 's|arch/arm64/configs/||')
+          [ ! -z "$CONSOLIDATE" ] && $CONF "$CONSOLIDATE"
+
+          GKI_FRAG=$(find arch/arm64/configs/vendor -name "garnet_GKI.config" | sed 's|arch/arm64/configs/||')
+          [ ! -z "$GKI_FRAG" ] && $CONF "$GKI_FRAG"
+          
+          echo "=== .config generated successfully ==="
+
+      - name: Download Halium checker script
+        working-directory: kernel
+        run: |
+          wget https://raw.githubusercontent.com/Halium/halium-scripts/master/check-kernel-config
+          chmod +x check-kernel-config
+
+      - name: Run Halium checker
+        working-directory: kernel
+        run: |
+          echo "=== Halium Config Check Results ==="
+          ./check-kernel-config out/.config
