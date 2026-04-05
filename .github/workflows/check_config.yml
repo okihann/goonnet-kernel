@@ -42,13 +42,37 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: kernel/kernel_devicetree
 
-      - name: Fix missing Xiaomi Kconfig files
+      - name: Fix missing Xiaomi headers and Kconfigs
         working-directory: kernel
         run: |
+          # 1. Remove broken Kconfig references
           sed -i '/hwid/d' drivers/misc/Makefile
           sed -i '/plaid/d' drivers/misc/Makefile
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
           sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
+          
+          # 2. Generate a Dummy hwid.h to satisfy Xiaomi's broken include paths
+          echo "#ifndef _HWID_H_" > dummy_hwid.h
+          echo "#define _HWID_H_" >> dummy_hwid.h
+          echo "static inline int get_hw_country_version(void) { return 0; }" >> dummy_hwid.h
+          echo "static inline int get_hw_version_platform(void) { return 0; }" >> dummy_hwid.h
+          grep -rE "HARDWARE_PROJECT_|Country[A-Z]" . --exclude="dummy_hwid.h" | grep -oE "HARDWARE_PROJECT_[A-Z0-9_]+|Country[A-Z][a-zA-Z]+" | sort -u | while read -r line; do
+            echo "#define $line 0" >> dummy_hwid.h
+          done
+          echo "#endif" >> dummy_hwid.h
+          
+          # 3. Copy the dummy file into any directory asking for it
+          grep -rl "hwid.h" . | xargs -I {} dirname {} | sort -u | while read -r dir; do
+            cp dummy_hwid.h "$dir/hwid.h"
+          done
+          
+          # 4. Generate a Dummy plaid.h just in case
+          PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
+          if [ ! -z "$PLAID_CALLER" ]; then
+            PLAID_DIR=$(dirname "$PLAID_CALLER")
+            echo "/* Dummy */" > "$PLAID_DIR/plaid.h"
+          fi
+          rm dummy_hwid.h
 
       - name: Generate base .config
         working-directory: kernel
