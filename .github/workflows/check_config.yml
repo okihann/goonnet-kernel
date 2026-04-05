@@ -95,13 +95,26 @@ jobs:
           wget https://raw.githubusercontent.com/Halium/halium-boot/master/check-kernel-config
           chmod +x check-kernel-config
           
-          echo "=== Applying Halium Patches ==="
-          # The -w flag tells the script to append the fixes to the file automatically
-          ./check-kernel-config -w out/.config
+          echo "=== Scanning for required patches ==="
+          # Run the checker and save the output to a text file
+          ./check-kernel-config out/.config > halium_reqs.txt || true
           
-          # Run olddefconfig to validate and clean up the injected configs
+          echo "=== Injecting Patches into .config ==="
+          # Parse the text file and automatically append the fixes
+          grep -E "(set it|unset it)" halium_reqs.txt | while read -r line; do
+            CONF_NAME=$(echo "$line" | awk '{print $1}')
+            if echo "$line" | grep -q "is not set, set it"; then
+              echo "Enabling: $CONF_NAME"
+              echo "${CONF_NAME}=y" >> out/.config
+            elif echo "$line" | grep -q "is set, unset it"; then
+              echo "Disabling: $CONF_NAME"
+              echo "${CONF_NAME}=n" >> out/.config
+            fi
+          done
+          
+          echo "=== Validating New Config ==="
+          # Let the kernel build system clean up and apply the injected configs
           make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-
       - name: Compile Halium Kernel
         working-directory: kernel
         run: |
