@@ -1,29 +1,36 @@
-name: Check Halium Kernel Config
+name: Build Garnet Halium Kernel
 
 on:
+  push:
+    paths:
+      - '.github/workflows/build-halium.yml'
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to checkout (e.g., garnet-halium)'
-        default: 'garnet-t-oss'
+        default: 'garnet-halium'
         required: true
 
 jobs:
-  check-config:
-    name: Run check-kernel-config
+  build-halium:
+    name: Build Halium Kernel
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            flex bison build-essential gcc-aarch64-linux-gnu make python3
+            git bc bison flex libssl-dev libelf-dev python3 python3-pip \
+            zip unzip curl wget gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            make libncurses-dev cpio pahole clang lld llvm device-tree-compiler
+          pip3 install --quiet absl-py
 
       - name: Clone okihann garnet_kernel (Private)
         uses: actions/checkout@v4
         with:
           repository: okihann/garnet-kernel
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.branch || 'garnet-halium' }}
           token: ${{ secrets.GH_PAT }}
           path: kernel
 
@@ -31,44 +38,57 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: okihann/garnet-devicetree
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.branch || 'garnet-halium' }}
           token: ${{ secrets.GH_PAT }}
           path: kernel/kernel_devicetree
 
       - name: Fix missing Xiaomi Kconfig files
         working-directory: kernel
         run: |
-          # Remove broken Xiaomi driver references that crash Kconfig parsing
           sed -i '/hwid/d' drivers/misc/Makefile
           sed -i '/plaid/d' drivers/misc/Makefile
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
           sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
 
-      - name: Generate final .config
+      - name: Generate base .config
         working-directory: kernel
         run: |
           export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
           
-          # Generate base GKI config
+          # Allow warnings so Halium strictness doesn't break compilation
+          echo "KBUILD_CFLAGS += -Wno-error" >> Makefile
+          echo "KBUILD_CPPFLAGS += -Wno-error" >> Makefile
+          
           $CONF gki_defconfig
-
-          # Apply garnet vendor fragments if they exist
           CONSOLIDATE=$(find arch/arm64/configs/vendor -name "garnet_consolidate.config" | sed 's|arch/arm64/configs/||')
           [ ! -z "$CONSOLIDATE" ] && $CONF "$CONSOLIDATE"
-
           GKI_FRAG=$(find arch/arm64/configs/vendor -name "garnet_GKI.config" | sed 's|arch/arm64/configs/||')
           [ ! -z "$GKI_FRAG" ] && $CONF "$GKI_FRAG"
-          
-          echo "=== .config generated successfully ==="
 
-      - name: Download Halium checker script
+      - name: Auto-Patch Halium Requirements
         working-directory: kernel
         run: |
           wget https://raw.githubusercontent.com/Halium/halium-boot/master/check-kernel-config
           chmod +x check-kernel-config
+          
+          echo "=== Applying Halium Patches ==="
+          # The -w flag tells the script to append the fixes to the file automatically
+          ./check-kernel-config -w out/.config
+          
+          # Run olddefconfig to validate and clean up the injected configs
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
-      - name: Run Halium checker
+      - name: Compile Halium Kernel
         working-directory: kernel
         run: |
-          echo "=== Halium Config Check Results ==="
-          ./check-kernel-config out/.config
+          set -o pipefail
+          {
+            make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          } 2>&1 | tee ../build.log
+
+      - name: Upload Halium Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Halium-Kernel-Image
+          path: kernel/out/arch/arm64/boot/Image
+          retention-days: 7
