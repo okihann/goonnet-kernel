@@ -35,6 +35,15 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: kernel/kernel_devicetree
 
+      - name: Fix missing Xiaomi Kconfig files
+        working-directory: kernel
+        run: |
+          # Remove broken Xiaomi driver references that crash Kconfig parsing
+          sed -i '/hwid/d' drivers/misc/Makefile
+          sed -i '/plaid/d' drivers/misc/Makefile
+          sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
+          sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
+
       - name: Generate final .config
         working-directory: kernel
         run: |
