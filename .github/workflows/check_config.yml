@@ -142,9 +142,9 @@ jobs:
       - name: Download Boot Image Tools
         working-directory: kernel
         run: |
-          # Get the official Android 14 (LineageOS 21) image packing tools
-          wget https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-21.0/mkbootimg.py
-          wget https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-21.0/unpack_bootimg.py
+          # Get the Android 12 (LineageOS 19.1) standalone image tools
+          wget https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-19.1/mkbootimg.py
+          wget https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-19.1/unpack_bootimg.py
           chmod +x mkbootimg.py unpack_bootimg.py
 
       - name: Build Standalone boot.img
