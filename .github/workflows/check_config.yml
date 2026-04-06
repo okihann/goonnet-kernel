@@ -8,7 +8,7 @@ on:
     inputs:
       branch:
         description: 'Branch to checkout (e.g., garnet-halium)'
-        default: 'garnet-halium'
+        default: 'garnet-t-oss'
         required: true
 
 jobs:
@@ -139,19 +139,20 @@ jobs:
             make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
           } 2>&1 | tee ../build.log
 
-      - name: Download Droidian Ramdisk & mkbootimg
+      - name: Download Boot Image Tools
         working-directory: kernel
         run: |
-          # Download a generic Halium ramdisk and the Android boot image maker
-          wget https://github.com/droidian-devices/halium-generic-ramdisk/releases/latest/download/ramdisk.img
+          # Get the official Android image packing and unpacking tools
           wget https://raw.githubusercontent.com/osm0sis/mkbootimg/master/mkbootimg.py
-          chmod +x mkbootimg.py
+          wget https://raw.githubusercontent.com/osm0sis/mkbootimg/master/unpackbootimg.py
+          chmod +x mkbootimg.py unpackbootimg.py
 
       - name: Build Standalone boot.img
         working-directory: kernel
         run: |
-          # Combine your compiled kernel with the Halium ramdisk
-          # (Note: The cmdline and OS parameters match standard Snapdragon GKI requirements)
+          # Create a tiny dummy ramdisk because Header v3 doesn't use the main ramdisk
+          echo "dummy" > ramdisk.img
+          
           python3 mkbootimg.py \
             --kernel out/arch/arm64/boot/Image \
             --ramdisk ramdisk.img \
@@ -160,6 +161,19 @@ jobs:
             --os_patch_level 2024-01 \
             --cmdline "console=ttyMSM0,115200n8 earlycon=qcom_geni,0x00884000 androidboot.hardware=qcom androidboot.console=ttyMSM0 rw rootwait" \
             -o halium-boot.img
+
+      - name: Inspect the Final Boot Image
+        working-directory: kernel
+        run: |
+          echo "=== 1. Unpacking the halium-boot.img ==="
+          python3 unpackbootimg.py -i halium-boot.img -o unpacked_boot
+          
+          echo "=== 2. Verifying the Kernel inside the image ==="
+          file unpacked_boot/kernel
+          strings unpacked_boot/kernel | grep "Linux version" | head -n 1
+          
+          echo "=== 3. Confirming Halium Patches survived packaging ==="
+          strings unpacked_boot/kernel | grep -i "apparmor" | head -n 5
 
       - name: Upload Halium Boot Image
         uses: actions/upload-artifact@v4
