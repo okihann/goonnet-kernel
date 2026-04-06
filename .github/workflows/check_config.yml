@@ -139,9 +139,31 @@ jobs:
             make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
           } 2>&1 | tee ../build.log
 
-      - name: Upload Halium Image
+      - name: Download Droidian Ramdisk & mkbootimg
+        working-directory: kernel
+        run: |
+          # Download a generic Halium ramdisk and the Android boot image maker
+          wget https://github.com/droidian-devices/halium-generic-ramdisk/releases/latest/download/ramdisk.img
+          wget https://raw.githubusercontent.com/osm0sis/mkbootimg/master/mkbootimg.py
+          chmod +x mkbootimg.py
+
+      - name: Build Standalone boot.img
+        working-directory: kernel
+        run: |
+          # Combine your compiled kernel with the Halium ramdisk
+          # (Note: The cmdline and OS parameters match standard Snapdragon GKI requirements)
+          python3 mkbootimg.py \
+            --kernel out/arch/arm64/boot/Image \
+            --ramdisk ramdisk.img \
+            --header_version 3 \
+            --os_version 12.0.0 \
+            --os_patch_level 2024-01 \
+            --cmdline "console=ttyMSM0,115200n8 earlycon=qcom_geni,0x00884000 androidboot.hardware=qcom androidboot.console=ttyMSM0 rw rootwait" \
+            -o halium-boot.img
+
+      - name: Upload Halium Boot Image
         uses: actions/upload-artifact@v4
         with:
-          name: Halium-Kernel-Image
-          path: kernel/out/arch/arm64/boot/Image
+          name: Halium-Boot-Image-Garnet
+          path: kernel/halium-boot.img
           retention-days: 7
