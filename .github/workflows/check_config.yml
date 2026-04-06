@@ -142,10 +142,10 @@ jobs:
       - name: Download Boot Image Tools
         working-directory: kernel
         run: |
-          # Get the official Android image packing and unpacking tools
-          wget https://raw.githubusercontent.com/osm0sis/mkbootimg/master/mkbootimg.py
-          wget https://raw.githubusercontent.com/osm0sis/mkbootimg/master/unpackbootimg.py
-          chmod +x mkbootimg.py unpackbootimg.py
+          # Get the official Android 14 (LineageOS 21) image packing tools
+          wget https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-21.0/mkbootimg.py
+          wget https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-21.0/unpack_bootimg.py
+          chmod +x mkbootimg.py unpack_bootimg.py
 
       - name: Build Standalone boot.img
         working-directory: kernel
@@ -166,7 +166,9 @@ jobs:
         working-directory: kernel
         run: |
           echo "=== 1. Unpacking the halium-boot.img ==="
-          python3 unpackbootimg.py -i halium-boot.img -o unpacked_boot
+          # Create a folder for the unpacked contents
+          mkdir -p unpacked_boot
+          python3 unpack_bootimg.py --boot_img halium-boot.img --out unpacked_boot
           
           echo "=== 2. Verifying the Kernel inside the image ==="
           file unpacked_boot/kernel
