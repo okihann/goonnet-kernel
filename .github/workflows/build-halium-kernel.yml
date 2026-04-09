@@ -148,24 +148,9 @@ jobs:
           # 2. ONLY copy the compiled Halium kernel. Do NOT touch DTBs.
           find kernel/out -name "Image" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
           
-          # 3. Download Droidian API 33 to extract the official Halium Ramdisk
-          echo "Fetching Droidian API 33 release for Ramdisk extraction..."
-          # FIXED: Updated grep to match the new 'rootfs-api33-arm64' naming convention
-          DROIDIAN_URL=$(curl -s https://api.github.com/repos/droidian-images/droidian/releases/latest | grep "browser_download_url.*rootfs-api33-arm64" | cut -d '"' -f 4 | head -n 1)
-          wget -qO droidian.zip "$DROIDIAN_URL"
-          unzip -q droidian.zip -d droidian_ext || true
-          
-          # Find the boot image inside the extracted zip
-          BOOT_IMG=$(find droidian_ext -name "*boot.img" | head -n 1)
-          
-          # Unpack it to get the raw Halium ramdisk
-          wget -q https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-19.1/unpack_bootimg.py
-          chmod +x unpack_bootimg.py
-          mkdir -p unpacked_droidian
-          python3 unpack_bootimg.py --boot_img "$BOOT_IMG" --out unpacked_droidian
-          
-          # Move the raw ramdisk into the AnyKernel3 folder
-          cp unpacked_droidian/ramdisk AnyKernel3/halium-ramdisk.img
+          # 3. Download the official Halium Ramdisk directly (Only 5MB!)
+          echo "Fetching official Halium Ramdisk..."
+          wget -qO AnyKernel3/halium-ramdisk.img https://github.com/halium/initramfs-tools-halium/releases/download/dynparts/initrd.img-touch-arm64
           
           cd AnyKernel3
           
@@ -179,12 +164,12 @@ jobs:
           sed -i 's/BLOCK=.*/BLOCK=auto;/' anykernel.sh
           sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=auto;/' anykernel.sh
           
-          # 5. Inject Ramdisk swap & Cmdline patches BEFORE write_boot
-          sed -i '/write_boot/i ui_print "Injecting official Halium Ramdisk..."' anykernel.sh
-          sed -i '/write_boot/i rm -rf $ramdisk' anykernel.sh
-          sed -i '/write_boot/i for f in $split_img/*-ramdisk*; do cp $home/halium-ramdisk.img "$f"; done' anykernel.sh
-          sed -i '/write_boot/i patch_cmdline "rw" "rw"' anykernel.sh
-          sed -i '/write_boot/i patch_cmdline "rootwait" "rootwait"' anykernel.sh
+          # 5. Forcibly inject the Ramdisk & Cmdline patches BEFORE write_boot
+          sed -i '/write_boot/i ui_print "Injecting official Halium Ramdisk...";' anykernel.sh
+          sed -i '/write_boot/i rm -f $split_img/*-ramdisk*;' anykernel.sh
+          sed -i '/write_boot/i cp $home/halium-ramdisk.img $split_img/boot.img-ramdisk.gz;' anykernel.sh
+          sed -i '/write_boot/i patch_cmdline "rw" "rw";' anykernel.sh
+          sed -i '/write_boot/i patch_cmdline "rootwait" "rootwait";' anykernel.sh
           
           # 6. Finalize AnyKernel script
           sed -i '/# init.rc/,$d' anykernel.sh
