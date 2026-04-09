@@ -148,8 +148,8 @@ jobs:
           # 2. ONLY copy the compiled Halium kernel. Do NOT touch DTBs.
           find kernel/out -name "Image" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
           
-          # 3. Download the official Halium Ramdisk directly (Only 5MB!)
-          echo "Fetching official Halium Ramdisk..."
+          # 3. Download the official Halium Ramdisk directly (dynpart)
+          echo "Fetching official Halium Ramdisk (dynpart)..."
           wget -qO AnyKernel3/halium-ramdisk.img https://github.com/halium/initramfs-tools-halium/releases/download/dynparts/initrd.img-touch-arm64
           
           cd AnyKernel3
@@ -160,23 +160,22 @@ jobs:
           sed -i 's/device.name3=toroplus/device.name3=/' anykernel.sh
           sed -i 's/device.name4=tuna/device.name4=/' anykernel.sh
           
-          # FIX: Uppercase variables to fix the boot partition mapping!
+          # Fix the boot partition mapping
           sed -i 's/BLOCK=.*/BLOCK=auto;/' anykernel.sh
           sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=auto;/' anykernel.sh
           
-          # 5. Forcibly inject the Ramdisk & Cmdline patches BEFORE write_boot
-          sed -i '/write_boot/i ui_print "Injecting official Halium Ramdisk...";' anykernel.sh
-          sed -i '/write_boot/i rm -f $split_img/*-ramdisk*;' anykernel.sh
-          sed -i '/write_boot/i cp $home/halium-ramdisk.img $split_img/boot.img-ramdisk.gz;' anykernel.sh
-          sed -i '/write_boot/i patch_cmdline "rw" "rw";' anykernel.sh
-          sed -i '/write_boot/i patch_cmdline "rootwait" "rootwait";' anykernel.sh
+          # 5. Bulletproof Injection: Delete write_boot and append line-by-line
+          sed -i '/write_boot;/,$d' anykernel.sh
           
-          # 6. Finalize AnyKernel script
-          sed -i '/# init.rc/,$d' anykernel.sh
-          echo "write_boot; # repacks the new Image and flashes it" >> anykernel.sh
-          echo "## end boot install" >> anykernel.sh
+          echo 'ui_print "Injecting official Halium Ramdisk...";' >> anykernel.sh
+          echo 'rm -f $split_img/*-ramdisk*;' >> anykernel.sh
+          echo 'cp $home/halium-ramdisk.img $split_img/boot.img-ramdisk.gz;' >> anykernel.sh
+          echo 'patch_cmdline "rw" "rw";' >> anykernel.sh
+          echo 'patch_cmdline "rootwait" "rootwait";' >> anykernel.sh
+          echo 'write_boot; # repacks the new Image and flashes it' >> anykernel.sh
+          echo '## end boot install' >> anykernel.sh
 
-          # 7. Compress into the final Zip
+          # 6. Compress into the final Zip
           zip -r9 ../Garnet-Halium-AnyKernel3.zip *
 
       - name: Upload Halium Flashable Zip
