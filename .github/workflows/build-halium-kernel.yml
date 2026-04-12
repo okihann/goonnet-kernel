@@ -128,6 +128,13 @@ jobs:
             fi
           done
           
+          # --- THE GKI MODULE HACK ---
+          echo "=== Bypassing GKI Module Signatures ==="
+          echo "CONFIG_MODULE_SIG=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
+          echo "CONFIG_MODVERSIONS=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
+          
           echo "=== Validating New Config ==="
           # olddefconfig safely accepts the default values for any new dependencies
           make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
@@ -168,8 +175,7 @@ jobs:
           sed -i '/write_boot;/,$d' anykernel.sh
           
           echo 'ui_print "Injecting official Halium Ramdisk...";' >> anykernel.sh
-          echo 'rm -f $split_img/*-ramdisk*;' >> anykernel.sh
-          echo 'cp $home/halium-ramdisk.img $split_img/boot.img-ramdisk.gz;' >> anykernel.sh
+          echo 'cp $home/halium-ramdisk.img $split_img/ramdisk.cpio;' >> anykernel.sh
           echo 'patch_cmdline "rw" "rw";' >> anykernel.sh
           echo 'patch_cmdline "rootwait" "rootwait";' >> anykernel.sh
           echo 'write_boot; # repacks the new Image and flashes it' >> anykernel.sh
