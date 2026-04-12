@@ -3,7 +3,7 @@ name: Build Garnet Halium Kernel
 on:
   push:
     paths:
-      - '.github/workflows/build-halium.yml'
+      - '.github/workflows/build-halium-kernel.yml'
   workflow_dispatch:
     inputs:
       branch:
@@ -46,10 +46,10 @@ jobs:
         working-directory: kernel
         run: |
           # 1. Remove broken Kconfig references
-          sed -i '/hwid/d' drivers/misc/Makefile
-          sed -i '/plaid/d' drivers/misc/Makefile
-          sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig
-          sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig
+          sed -i '/hwid/d' drivers/misc/Makefile || true
+          sed -i '/plaid/d' drivers/misc/Makefile || true
+          sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig || true
+          sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig || true
           
           # 2. Generate a Dummy hwid.h
           echo "#ifndef _HWID_H_" > dummy_hwid.h
@@ -67,26 +67,28 @@ jobs:
           done
           
           # 4. Generate a Dummy plaid.h
-          PLAID_CALLER=$(grep -rl "plaid.h" . | head -1)
+          PLAID_CALLER=$(grep -rl "plaid.h" . | head -1 || true)
           if [ ! -z "$PLAID_CALLER" ]; then
             PLAID_DIR=$(dirname "$PLAID_CALLER")
             echo "/* Dummy */" > "$PLAID_DIR/plaid.h"
           fi
           rm dummy_hwid.h
 
-          # 5. Fix duplicate USB gadget functions (Your original Python fix)
+          # 5. Fix duplicate USB gadget functions
           python3 -c "
-          import sys
-          content = open('drivers/usb/gadget/udc/core.c').read()
-          funcs = ['usb_gadget_enable_async_callbacks', 'usb_gadget_disable_async_callbacks']
-          for f in funcs:
-              parts = content.split('static inline void ' + f)
-              if len(parts) > 2:
-                  sub_parts = parts[2].split('}', 1)
-                  if len(sub_parts) == 2:
-                      content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + sub_parts[0] + '}\n#endif\n' + sub_parts[1]
-          open('drivers/usb/gadget/udc/core.c', 'w').write(content)
+          import sys, os
+          if os.path.exists('drivers/usb/gadget/udc/core.c'):
+              content = open('drivers/usb/gadget/udc/core.c').read()
+              funcs = ['usb_gadget_enable_async_callbacks', 'usb_gadget_disable_async_callbacks']
+              for f in funcs:
+                  parts = content.split('static inline void ' + f)
+                  if len(parts) > 2:
+                      sub_parts = parts[2].split('}', 1)
+                      if len(sub_parts) == 2:
+                          content = parts[0] + 'static inline void ' + f + parts[1] + '#if 0\nstatic inline void ' + f + sub_parts[0] + '}\n#endif\n' + sub_parts[1]
+              open('drivers/usb/gadget/udc/core.c', 'w').write(content)
           "
+
       - name: Generate base .config
         working-directory: kernel
         run: |
@@ -113,31 +115,27 @@ jobs:
           
           echo "=== Injecting Patches into .config ==="
           grep -E "(set it|unset it)" halium_reqs.txt | while read -r line; do
-            # Strictly extract only the CONFIG_XXXX string
             CONF_NAME=$(echo "$line" | grep -oE "CONFIG_[a-zA-Z0-9_]+")
-            
-            # Make sure it isn't blank before injecting
             if [ ! -z "$CONF_NAME" ]; then
               if echo "$line" | grep -q "is not set, set it"; then
-                echo "Enabling: $CONF_NAME"
                 echo "${CONF_NAME}=y" >> out/.config
               elif echo "$line" | grep -q "is set, unset it"; then
-                echo "Disabling: $CONF_NAME"
                 echo "${CONF_NAME}=n" >> out/.config
               fi
             fi
           done
           
-          # --- THE GKI MODULE HACK ---
-          echo "=== Bypassing GKI Module Signatures ==="
+          echo "=== Bypassing GKI Module Signatures & Hardcoding Cmdline ==="
           echo "CONFIG_MODULE_SIG=n" >> out/.config
           echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
           echo "CONFIG_MODVERSIONS=n" >> out/.config
           echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
+          echo 'CONFIG_CMDLINE="rw rootwait"' >> out/.config
+          echo 'CONFIG_CMDLINE_EXTEND=y' >> out/.config
           
           echo "=== Validating New Config ==="
-          # olddefconfig safely accepts the default values for any new dependencies
           make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
       - name: Compile Halium Kernel
         working-directory: kernel
         run: |
@@ -156,12 +154,11 @@ jobs:
           find kernel/out -name "Image" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
           
           # 3. Download AND DECOMPRESS the official Halium Ramdisk
-          echo "Fetching and unzipping official Halium Ramdisk..."
+          echo "Fetching and unzipping official Halium Ramdisk (dynpart)..."
           wget -qO temp_initrd.gz https://github.com/halium/initramfs-tools-halium/releases/download/dynparts/initrd.img-touch-arm64
-          
-          # Unzip it into a raw CPIO file so Magiskboot doesn't double-compress it
           zcat temp_initrd.gz > AnyKernel3/halium-ramdisk.img
           rm temp_initrd.gz
+          
           cd AnyKernel3
           
           # 4. Configure anykernel.sh for Garnet
@@ -174,7 +171,7 @@ jobs:
           sed -i 's/BLOCK=.*/BLOCK=auto;/' anykernel.sh
           sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=auto;/' anykernel.sh
           
-          # 5. Bulletproof Injection: Delete write_boot and append line-by-line
+          # 5. Bulletproof Injection: Replace write_boot block
           sed -i '/write_boot;/,$d' anykernel.sh
           
           echo 'ui_print "Injecting official Halium Ramdisk...";' >> anykernel.sh
@@ -187,9 +184,22 @@ jobs:
           # 6. Compress into the final Zip
           zip -r9 ../Garnet-Halium-AnyKernel3.zip *
 
+      - name: Dump Compiled Hardware Modules
+        run: |
+          mkdir -p module_dump
+          find kernel/out -name "*.ko" -exec cp {} module_dump/ \;
+          zip -r9 Garnet-Modules.zip module_dump/
+
       - name: Upload Halium Flashable Zip
         uses: actions/upload-artifact@v4
         with:
           name: Halium-AnyKernel3-Garnet
           path: Garnet-Halium-AnyKernel3.zip
+          retention-days: 7
+
+      - name: Upload Modules Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Halium-Hardware-Modules
+          path: Garnet-Modules.zip
           retention-days: 7
