@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch to checkout (e.g., garnet-halium)'
+        description: 'Branch to checkout (e.g., garnet-t-oss)'
         default: 'garnet-t-oss'
         required: true
 
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: okihann/garnet-kernel
-          ref: ${{ github.event.inputs.branch || 'garnet-halium' }}
+          ref: ${{ github.event.inputs.branch || 'garnet-t-oss' }}
           token: ${{ secrets.GH_PAT }}
           path: kernel
 
@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: okihann/garnet-devicetree
-          ref: ${{ github.event.inputs.branch || 'garnet-halium' }}
+          ref: ${{ github.event.inputs.branch || 'garnet-t-oss' }}
           token: ${{ secrets.GH_PAT }}
           path: kernel/kernel_devicetree
 
