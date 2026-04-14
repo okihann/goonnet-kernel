@@ -144,7 +144,10 @@ jobs:
           cd AnyKernel3
           
           mkdir -p ramdisk
-          wget -O ramdisk/busybox https://busybox.net/downloads/binaries/1.35.0-aarch64-linux-musl/busybox
+          
+          # Fetch official 1.31.0 ARM64 binary, with a GitHub mirror fallback if it fails
+          echo "Downloading static ARM64 BusyBox..."
+          wget -O ramdisk/busybox https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv8l || wget -O ramdisk/busybox https://raw.githubusercontent.com/shutingrz/busybox-static-binaries-fat/main/busybox-aarch64-linux-gnu
           chmod +x ramdisk/busybox
           
           cat << 'EOF' > ramdisk/init
