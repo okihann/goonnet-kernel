@@ -26,7 +26,7 @@ jobs:
             make libncurses-dev cpio pahole clang lld llvm device-tree-compiler
           pip3 install --quiet absl-py
 
-      - name: Clone okihann garnet_kernel (Private)
+      - name: Clone okihann garnet_kernel
         uses: actions/checkout@v4
         with:
           repository: okihann/garnet-kernel
@@ -34,7 +34,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: kernel
 
-      - name: Clone okihann garnet_devicetree (Private)
+      - name: Clone okihann garnet_devicetree
         uses: actions/checkout@v4
         with:
           repository: okihann/garnet-devicetree
@@ -45,13 +45,11 @@ jobs:
       - name: Fix Xiaomi Source Bugs
         working-directory: kernel
         run: |
-          # 1. Remove broken Kconfig references
           sed -i '/hwid/d' drivers/misc/Makefile || true
           sed -i '/plaid/d' drivers/misc/Makefile || true
           sed -i 's|^source "drivers/misc/hwid/Kconfig"|# source "drivers/misc/hwid/Kconfig"|' drivers/misc/Kconfig || true
           sed -i 's|^source "drivers/misc/plaid/Kconfig"|# source "drivers/misc/plaid/Kconfig"|' drivers/misc/Kconfig || true
           
-          # 2. Generate a Dummy hwid.h
           echo "#ifndef _HWID_H_" > dummy_hwid.h
           echo "#define _HWID_H_" >> dummy_hwid.h
           echo "static inline int get_hw_country_version(void) { return 0; }" >> dummy_hwid.h
@@ -61,12 +59,10 @@ jobs:
           done
           echo "#endif" >> dummy_hwid.h
           
-          # 3. Copy the dummy file into any directory asking for it
           grep -rl "hwid.h" . | xargs -I {} dirname {} | sort -u | while read -r dir; do
             cp dummy_hwid.h "$dir/hwid.h"
           done
           
-          # 4. Generate a Dummy plaid.h
           PLAID_CALLER=$(grep -rl "plaid.h" . | head -1 || true)
           if [ ! -z "$PLAID_CALLER" ]; then
             PLAID_DIR=$(dirname "$PLAID_CALLER")
@@ -74,7 +70,6 @@ jobs:
           fi
           rm dummy_hwid.h
 
-          # 5. Fix duplicate USB gadget functions
           python3 -c "
           import sys, os
           if os.path.exists('drivers/usb/gadget/udc/core.c'):
@@ -93,18 +88,128 @@ jobs:
         working-directory: kernel
         run: |
           export CONF="make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-"
-          
-          # Allow warnings so Halium strictness doesn't break compilation
           echo "KBUILD_CFLAGS += -Wno-error" >> Makefile
           echo "KBUILD_CPPFLAGS += -Wno-error" >> Makefile
-          
           $CONF gki_defconfig
           CONSOLIDATE=$(find arch/arm64/configs/vendor -name "garnet_consolidate.config" | sed 's|arch/arm64/configs/||')
           [ ! -z "$CONSOLIDATE" ] && $CONF "$CONSOLIDATE"
           GKI_FRAG=$(find arch/arm64/configs/vendor -name "garnet_GKI.config" | sed 's|arch/arm64/configs/||')
           [ ! -z "$GKI_FRAG" ] && $CONF "$GKI_FRAG"
 
-      - name: Auto-Patch Halium Requirements
+      - name: Auto-Patch Halium & SELinux Requirements
+        working-directory: kernel
+        run: |
+          wget https://raw.githubusercontent.com/Halium/halium-boot/master/check-kernel-config
+          chmod +x check-kernel-config
+          
+          ./check-kernel-config out/.config > halium_reqs.txt || true
+          
+          grep -E "(set it|unset it)" halium_reqs.txt | while read -r line; do
+            CONF_NAME=$(echo "$line" | grep -oE "CONFIG_[a-zA-Z0-9_]+")
+            if [ ! -z "$CONF_NAME" ]; then
+              if echo "$line" | grep -q "is not set, set it"; then
+                echo "${CONF_NAME}=y" >> out/.config
+              elif echo "$line" | grep -q "is set, unset it"; then
+                echo "${CONF_NAME}=n" >> out/.config
+              fi
+            fi
+          done
+          
+          echo "CONFIG_MODULE_SIG=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_FORCE=n" >> out/.config
+          echo "CONFIG_MODVERSIONS=n" >> out/.config
+          echo "CONFIG_MODULE_SIG_ALL=n" >> out/.config
+          echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> out/.config
+          echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> out/.config
+          echo 'CONFIG_CMDLINE="rw rootwait enforcing=0 androidboot.selinux=permissive"' >> out/.config
+          echo 'CONFIG_CMDLINE_EXTEND=y' >> out/.config
+          
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: Compile Halium Kernel
+        working-directory: kernel
+        run: |
+          set -o pipefail
+          {
+            make O=out ARCH=arm64 -j$(nproc) CC=clang CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1
+          } 2>&1 | tee ../build.log
+
+      - name: Package Halium with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/README.md
+          
+          find kernel/out -name "Image" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
+          
+          cd AnyKernel3
+          
+          mkdir -p ramdisk
+          wget -O ramdisk/busybox https://busybox.net/downloads/binaries/1.35.0-aarch64-linux-musl/busybox
+          chmod +x ramdisk/busybox
+          
+          cat << 'EOF' > ramdisk/init
+          #!/busybox sh
+          
+          /busybox mkdir -p /proc /sys /dev
+          /busybox mount -t proc proc /proc
+          /busybox mount -t sysfs sysfs /sys
+          /busybox mount -t devtmpfs devtmpfs /dev
+          
+          /busybox mkdir -p /data
+          /busybox mkdir -p /rootfs
+          
+          /busybox mount -t f2fs /dev/block/bootdevice/by-name/userdata /data
+          
+          if /busybox [ -f /data/rootfs.img ] && \
+             /busybox [ -f /data/android-rootfs.img ] && \
+             /busybox [ -f /data/media/0/vendor-api33.img ] && \
+             /busybox [ -f /data/media/0/odm-api33.img ]; then
+              
+              /busybox losetup /dev/block/loop99 /data/rootfs.img
+              /busybox mount /dev/block/loop99 /rootfs
+              
+              /busybox losetup /dev/block/loop98 /data/media/0/vendor-api33.img
+              /busybox mount -o ro /dev/block/loop98 /rootfs/vendor
+              
+              /busybox losetup /dev/block/loop97 /data/media/0/odm-api33.img
+              /busybox mount -o ro /dev/block/loop97 /rootfs/odm
+              
+              /busybox mkdir -p /rootfs/data
+              /busybox mount --move /data /rootfs/data
+              
+              exec /busybox switch_root /rootfs /sbin/init
+          else
+              /busybox echo b > /proc/sysrq-trigger
+          fi
+          EOF
+          chmod +x ramdisk/init
+          
+          sed -i 's/device.name1=maguro/device.name1=garnet/' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=/' anykernel.sh
+          sed -i 's/device.name3=toroplus/device.name3=/' anykernel.sh
+          sed -i 's/device.name4=tuna/device.name4=/' anykernel.sh
+          
+          sed -i 's/BLOCK=.*/BLOCK=auto;/' anykernel.sh
+          sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=auto;/' anykernel.sh
+          
+          sed -i '/write_boot;/,$d' anykernel.sh
+          
+          echo 'ui_print "Injecting custom Droidian hijack ramdisk...";' >> anykernel.sh
+          echo 'set_perm 0 0 755 $ramdisk/busybox;' >> anykernel.sh
+          echo 'set_perm 0 0 755 $ramdisk/init;' >> anykernel.sh
+          echo 'patch_cmdline "rw" "rw";' >> anykernel.sh
+          echo 'patch_cmdline "rootwait" "rootwait";' >> anykernel.sh
+          echo 'write_boot; # repacks the new Image and flashes it' >> anykernel.sh
+          echo '## end boot install' >> anykernel.sh
+
+          zip -r9 ../Garnet-Halium-AnyKernel3.zip *
+
+      - name: Upload Halium Flashable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Halium-AnyKernel3-Garnet
+          path: Garnet-Halium-AnyKernel3.zip
+          retention-days: 7      - name: Auto-Patch Halium Requirements
         working-directory: kernel
         run: |
           wget https://raw.githubusercontent.com/Halium/halium-boot/master/check-kernel-config
